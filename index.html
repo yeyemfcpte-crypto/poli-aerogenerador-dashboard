@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Dashboard Aerogenerador - Realtime</title>
+
+  <!-- Bootstrap (estilos bonitos) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css">
+
+  <!-- Chart.js para la gráfica -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <!-- Firebase (SDK compat) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
+  <style>
+    body {
+      background: #f3f3f3;
+    }
+    .card {
+      border-radius: 15px;
+      box-shadow: 0px 3px 10px rgba(0,0,0,0.15);
+    }
+    .toggle-dark {
+      position: fixed;
+      top: 15px;
+      right: 15px;
+      z-index: 999;
+    }
+    body.dark {
+      background: #121212;
+      color: #f1f1f1;
+    }
+    body.dark .card {
+      background: #1e1e1e;
+      color: #f1f1f1;
+    }
+    body.dark h1, body.dark h3, body.dark h4 {
+      color: #f1f1f1;
+    }
+  </style>
+</head>
+<body>
+
+<button id="darkModeBtn" class="btn btn-dark toggle-dark">🌙 Modo oscuro</button>
+
+<div class="container mt-4">
+  <h1 class="text-center mb-4">🌬️ Dashboard Aerogenerador (Firebase)</h1>
+
+  <!-- Tarjetas de datos -->
+  <div class="row text-center">
+    <div class="col-md-4">
+      <div class="card p-3">
+        <h4>Voltaje actual</h4>
+        <h3 id="voltaje">-- V</h3>
+      </div>
+    </div>
+
+    <div class="col-md-4">
+      <div class="card p-3">
+        <h4>Velocidad actual</h4>
+        <h3 id="rpm">-- RPM</h3>
+      </div>
+    </div>
+
+    <div class="col-md-4">
+      <div class="card p-3">
+        <h4>Última actualización</h4>
+        <h3 id="timestamp">--</h3>
+      </div>
+    </div>
+  </div>
+
+  <!-- Gráfica -->
+  <div class="card p-3 mt-4">
+    <h4 class="mb-3">Histórico corto (sesión actual)</h4>
+    <canvas id="grafica"></canvas>
+  </div>
+</div>
+
+<script>
+  /* ===========================
+     🔥 INICIALIZAR FIREBASE
+     =========================== */
+  const firebaseConfig = {
+    apiKey: "AIzaSyBPe5zDvJFXmHzUMsmgWONpkvjrGGE7Mlo",
+    authDomain: "poli-aerogenerador.firebaseapp.com",
+    databaseURL: "https://poli-aerogenerador-default-rtdb.firebaseio.com",
+    projectId: "poli-aerogenerador",
+    storageBucket: "poli-aerogenerador.firebasestorage.app",
+    messagingSenderId: "775864507782",
+    appId: "1:775864507782:web:e6d08e881e09e005c52007",
+    measurementId: "G-958XTXSQHH"
+  };
+
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+  const refDatos = db.ref("aerogenerador/datosActuales");
+
+  /* ===========================
+     DATOS PARA GRÁFICA
+     =========================== */
+  let tiempo = [];
+  let datosVoltaje = [];
+  let datosRPM = [];
+  let chart;
+
+  function crearGrafica() {
+    const ctx = document.getElementById("grafica");
+    chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: tiempo,
+        datasets: [
+          { label: "Voltaje (V)", data: datosVoltaje, borderColor: "red", yAxisID: 'y' },
+          { label: "RPM",         data: datosRPM,     borderColor: "blue", yAxisID: 'y1' }
+        ]
+      },
+      options: {
+        responsive: true,
+        interaction: { mode: 'index', intersect: false },
+        scales: {
+          y:  { type: 'linear', position: 'left',  title: { display: true, text: "Voltaje (V)" }},
+          y1: { type: 'linear', position: 'right', title: { display: true, text: "RPM" }}
+        }
+      }
+    });
+  }
+
+  crearGrafica();
+
+  /* ===========================
+     ESCUCHAR CAMBIOS EN FIREBASE
+     =========================== */
+  refDatos.on("value", (snapshot) => {
+    const data = snapshot.val();
+    if (!data) return;
+
+    // 1) Actualizar tarjetas
+    document.getElementById("voltaje").innerText = `${data.voltaje} V`;
+    document.getElementById("rpm").innerText     = `${data.rpm} RPM`;
+
+    // Formatear fecha/hora
+    const fecha = new Date(data.timestamp || Date.now());
+    const fechaStr = fecha.toLocaleString();
+    document.getElementById("timestamp").innerText = fechaStr;
+
+    // 2) Agregar punto nuevo a la gráfica (solo en la sesión)
+    const t = tiempo.length;
+    tiempo.push(t);
+    datosVoltaje.push(data.voltaje);
+    datosRPM.push(data.rpm);
+
+    // Limitar puntos en memoria (ej. últimos 300)
+    const maxPuntos = 300;
+    if (tiempo.length > maxPuntos) {
+      tiempo.shift();
+      datosVoltaje.shift();
+      datosRPM.shift();
+    }
+
+    chart.update();
+  });
+
+  /* ===========================
+     MODO OSCURO
+     =========================== */
+  const darkModeBtn = document.getElementById("darkModeBtn");
+
+  darkModeBtn.addEventListener("click", () => {
+    const body = document.body;
+    const isDark = body.classList.toggle("dark");
+
+    if (isDark) {
+      darkModeBtn.innerText = "☀️ Modo claro";
+      darkModeBtn.classList.remove("btn-dark");
+      darkModeBtn.classList.add("btn-light");
+    } else {
+      darkModeBtn.innerText = "🌙 Modo oscuro";
+      darkModeBtn.classList.remove("btn-light");
+      darkModeBtn.classList.add("btn-dark");
+    }
+  });
+</script>
+
+</body>
+</html>
